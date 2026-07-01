@@ -24,6 +24,7 @@ import visitRoutes from './routes/visitRoutes.js';
 import imageOptimizeRoutes from './routes/imageOptimizeRoutes.js';
 import metricsRoutes from './routes/metricsRoutes.js';
 import integrationRoutes from './routes/integrationRoutes.js';
+import authRoutes from './routes/authRoutes.js';
 
 // Para obter __dirname em ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -120,6 +121,7 @@ app.get('/', (req, res) => {
   });
 });
 
+app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/site-config', siteConfigRoutes);
 app.use('/api/newsletter', newsletterRoutes);
