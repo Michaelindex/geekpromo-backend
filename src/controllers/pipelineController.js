@@ -22,6 +22,8 @@ const P = {
   failed: path.join(DATA_DIR, 'failed.jsonl'),
   dryRun: path.join(DATA_DIR, 'dry-run.jsonl'),
   published: path.join(DATA_DIR, 'published.json'),
+  dedupSkipped: path.join(DATA_DIR, 'dedup-skipped.jsonl'),
+  recentPublished: path.join(DATA_DIR, 'recent-published.jsonl'),
 };
 
 function safeReadJson(p, fallback) {
@@ -108,4 +110,29 @@ export const dryRunLog = (req, res) => {
 export const failedLog = (req, res) => {
   const limit = Math.min(200, parseInt(req.query.limit, 10) || 20);
   return res.json({ success: true, data: tailLines(P.failed, limit) });
+};
+
+// GET /api/admin/pipeline/dedup-skipped?limit=20
+export const dedupSkippedLog = (req, res) => {
+  const limit = Math.min(200, parseInt(req.query.limit, 10) || 20);
+  return res.json({ success: true, data: tailLines(P.dedupSkipped, limit) });
+};
+
+// GET /api/admin/pipeline/dedup-active
+// Retorna quantas entradas ativas há na janela de 2h (só o count + tail curto)
+export const dedupActive = (req, res) => {
+  const now = Date.now();
+  const WINDOW = 2 * 3600 * 1000;
+  const all = tailLines(P.recentPublished, 2000);
+  const active = all.filter((e) => {
+    const at = new Date(e.at || 0).getTime();
+    return isFinite(at) && now - at < WINDOW;
+  });
+  return res.json({
+    success: true,
+    data: {
+      active_count: active.length,
+      last: active.slice(-20).reverse(),
+    },
+  });
 };
