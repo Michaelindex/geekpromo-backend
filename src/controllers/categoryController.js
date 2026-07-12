@@ -419,6 +419,10 @@ export const getCategoryStats = async (req, res, next) => {
   }
 };
 
+// Cache em memória para top categorias (5 minutos)
+const topCategoriesCache = new Map();
+const TOP_CATEGORIES_TTL = 5 * 60 * 1000;
+
 // Buscar top categorias ordenadas por número de produtos
 export const getTopCategories = async (req, res, next) => {
   try {
@@ -433,14 +437,24 @@ export const getTopCategories = async (req, res, next) => {
       });
     }
 
+    const cacheKey = `top:${limitNum}`;
+    const cached = topCategoriesCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < TOP_CATEGORIES_TTL) {
+      return res.status(200).json(cached.payload);
+    }
+
     const result = await Category.findTopCategoriesWithProductCount(limitNum);
 
-    res.status(200).json({
+    const payload = {
       success: true,
       data: result.data,
       total: result.total,
       message: `${result.data.length} categoria(s) encontrada(s)`
-    });
+    };
+
+    topCategoriesCache.set(cacheKey, { at: Date.now(), payload });
+
+    res.status(200).json(payload);
 
   } catch (error) {
     next(error);

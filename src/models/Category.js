@@ -290,19 +290,8 @@ class Category {
       LIMIT ?
     `;
 
-    console.log('🔍 [DEBUG] Category.findTopCategoriesWithProductCount - SQL Query:', sql);
-    console.log('🔍 [DEBUG] Category.findTopCategoriesWithProductCount - Limit:', parseInt(limit));
-    
     const categories = await query(sql, [parseInt(limit)]);
-    
-    console.log('🔍 [DEBUG] Category.findTopCategoriesWithProductCount - Results:', categories.map(cat => ({
-      id: cat.id,
-      name: cat.name,
-      use_custom_order: cat.use_custom_order,
-      sort_order: cat.sort_order,
-      product_count: cat.product_count
-    })));
-    
+
     return {
       data: categories,
       total: categories.length

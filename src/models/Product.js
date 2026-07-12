@@ -988,6 +988,9 @@ class Product {
       case 'name-desc':
         orderBy = 'p.title DESC';
         break;
+      case 'newest':
+        orderBy = 'p.created_at DESC';
+        break;
       case 'relevance':
       default:
         // Ordenar por relevância (título exato primeiro, depois parcial)
