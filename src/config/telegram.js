@@ -4,7 +4,7 @@ import https from 'https';
  * Envia uma mensagem de texto para o bot/grupo do Telegram.
  * Usa apenas variáveis de ambiente, sem expor o token em nenhuma rota pública.
  */
-export async function sendTelegramMessage(text) {
+export async function sendTelegramMessage(text, imageUrl = null) {
   try {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -13,13 +13,18 @@ export async function sendTelegramMessage(text) {
       return;
     }
 
-    const url = new URL(`https://api.telegram.org/bot${token}/sendMessage`);
+    // Se veio imagem, usa sendPhoto (imagem ANEXADA, sem preview de link).
+    // Caption tem limite 1024 chars; nossa mensagem ~300 chars, cabe folgado.
+    // Se não veio imagem, usa sendMessage com preview de link desabilitado.
+    const useImage = !!imageUrl;
+    const method = useImage ? 'sendPhoto' : 'sendMessage';
+    const url = new URL(`https://api.telegram.org/bot${token}/${method}`);
 
-    const payload = JSON.stringify({
-      chat_id: chatId,
-      text,
-      parse_mode: 'Markdown',
-    });
+    const body = useImage
+      ? { chat_id: chatId, photo: imageUrl, caption: text, parse_mode: 'Markdown' }
+      : { chat_id: chatId, text, parse_mode: 'Markdown', disable_web_page_preview: true };
+
+    const payload = JSON.stringify(body);
 
     const options = {
       method: 'POST',

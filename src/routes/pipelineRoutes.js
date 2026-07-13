@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAdmin } from '../middleware/auth.js';
 import {
   getStatus, start, stop, setMode, dryRunLog, failedLog,
-  dedupSkippedLog, dedupActive,
+  dedupSkippedLog, dedupActive, setTelegramEnabled,
 } from '../controllers/pipelineController.js';
 
 const router = Router();
@@ -14,6 +14,7 @@ router.get('/status', getStatus);
 router.post('/start', start);
 router.post('/stop', stop);
 router.post('/mode', setMode);
+router.post('/telegram', setTelegramEnabled);
 router.get('/dry-run', dryRunLog);
 router.get('/failed', failedLog);
 router.get('/dedup-skipped', dedupSkippedLog);

@@ -24,6 +24,9 @@ const P = {
   published: path.join(DATA_DIR, 'published.json'),
   dedupSkipped: path.join(DATA_DIR, 'dedup-skipped.jsonl'),
   recentPublished: path.join(DATA_DIR, 'recent-published.jsonl'),
+  // Presença deste arquivo desliga o post no Telegram, mesmo com POST_TO_TELEGRAM=true.
+  // Toggle provisório do admin — override em runtime, sem alterar env.
+  telegramOff: path.join(DATA_DIR, 'telegram.disabled'),
 };
 
 function safeReadJson(p, fallback) {
@@ -50,11 +53,34 @@ export const getStatus = (req, res) => {
   const stats = safeReadJson(P.stats, { day: new Date().toISOString().slice(0, 10), processed: 0, published: 0, skipped: 0, failed: 0, ai_tokens_in: 0, ai_tokens_out: 0 });
   const circuit = safeReadJson(P.circuit, { fails: 0, openedAt: null });
   const publishedCount = Object.keys(safeReadJson(P.published, {})).length;
+  const telegram_enabled = !fs.existsSync(P.telegramOff);
 
   return res.json({
     success: true,
-    data: { enabled, mode, stats, circuit, published_total: publishedCount },
+    data: { enabled, mode, stats, circuit, published_total: publishedCount, telegram_enabled },
   });
+};
+
+// POST /api/admin/pipeline/telegram  { enabled: bool }
+// Ativa/desativa o post no Telegram em runtime.
+// Cria/remove o flag data/telegram.disabled — o worker olha por mensagem.
+export const setTelegramEnabled = (req, res) => {
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ success: false, error: 'enabled deve ser boolean' });
+  }
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (enabled) {
+      if (fs.existsSync(P.telegramOff)) fs.unlinkSync(P.telegramOff);
+    } else {
+      fs.writeFileSync(P.telegramOff, '');
+    }
+    console.log(`[PIPELINE] telegram=${enabled ? 'ON' : 'OFF'} por ${req.admin?.email || 'admin'}`);
+    return res.json({ success: true, data: { telegram_enabled: enabled } });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
 };
 
 // POST /api/admin/pipeline/start

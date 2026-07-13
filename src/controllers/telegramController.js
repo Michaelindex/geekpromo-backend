@@ -11,7 +11,7 @@ import { sendTelegramMessage } from '../config/telegram.js';
  */
 export const sendPromotionMessage = async (req, res, next) => {
   try {
-    const { text } = req.body || {};
+    const { text, image_url } = req.body || {};
 
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
       return res.status(400).json({
@@ -20,8 +20,9 @@ export const sendPromotionMessage = async (req, res, next) => {
       });
     }
 
-    // Enviar mensagem para o Telegram de forma assíncrona
-    await sendTelegramMessage(text);
+    // Enviar mensagem para o Telegram de forma assíncrona.
+    // Se image_url vier, anexa como foto (sendPhoto); senão manda texto sem preview.
+    await sendTelegramMessage(text, image_url || null);
 
     return res.json({
       success: true,
