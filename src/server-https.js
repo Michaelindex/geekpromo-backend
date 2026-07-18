@@ -26,6 +26,7 @@ import metricsRoutes from './routes/metricsRoutes.js';
 import integrationRoutes from './routes/integrationRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import pipelineRoutes from './routes/pipelineRoutes.js';
+import telegramGroupsRoutes from './routes/telegramGroupsRoutes.js';
 
 // Para obter __dirname em ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -140,6 +141,7 @@ app.use('/api/tools', imageOptimizeRoutes); // Endpoint independente de otimiza�
 app.use('/api/admin/metrics', metricsRoutes); // KPIs com filtros de período
 app.use('/api/integrations', integrationRoutes); // Integrações externas (ex: Telegram)
 app.use('/api/admin/pipeline', pipelineRoutes);  // Pipeline geekpromo-auto (admin only)
+app.use('/api/admin/telegram-groups', telegramGroupsRoutes); // Grupos monitorados pelo listener MTProto
 
 // Registrar rotas de Short URLs (DEVE vir por último)
 app.use('/api', shortUrlRoutes);
