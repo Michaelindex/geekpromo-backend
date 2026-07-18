@@ -27,6 +27,8 @@ const P = {
   // Presença deste arquivo desliga o post no Telegram, mesmo com POST_TO_TELEGRAM=true.
   // Toggle provisório do admin — override em runtime, sem alterar env.
   telegramOff: path.join(DATA_DIR, 'telegram.disabled'),
+  // Allowlist de categorias autorizadas a virar post. Ver getCategoriesPublish.
+  categoriesPublish: path.join(DATA_DIR, 'categories-publish.json'),
 };
 
 function safeReadJson(p, fallback) {
@@ -142,6 +144,53 @@ export const failedLog = (req, res) => {
 export const dedupSkippedLog = (req, res) => {
   const limit = Math.min(200, parseInt(req.query.limit, 10) || 20);
   return res.json({ success: true, data: tailLines(P.dedupSkipped, limit) });
+};
+
+// GET /api/admin/pipeline/categories-publish
+// Retorna o mapa persistido em disco. Cria default (tudo desligado, on_unknown=skip)
+// se o arquivo ainda não existe.
+export const getCategoriesPublish = (req, res) => {
+  const cfg = safeReadJson(P.categoriesPublish, {
+    mode: 'allowlist',
+    on_unknown_category: 'skip',
+    categories: {},
+    updated_at: null,
+  });
+  return res.json({ success: true, data: cfg });
+};
+
+// PUT /api/admin/pipeline/categories-publish
+// Body: { categories: { [uuid]: boolean }, on_unknown_category?: 'skip'|'allow' }
+// Sobrescreve o arquivo inteiro. Só aceita mapa uuid→bool.
+export const setCategoriesPublish = (req, res) => {
+  const body = req.body || {};
+  const raw = body.categories;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return res.status(400).json({ success: false, error: 'categories deve ser objeto { uuid: boolean }' });
+  }
+  const clean = {};
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  for (const [k, v] of Object.entries(raw)) {
+    if (!UUID_RE.test(k)) continue;
+    clean[k] = !!v;
+  }
+  const on_unknown = body.on_unknown_category === 'allow' ? 'allow' : 'skip';
+  const payload = {
+    mode: 'allowlist',
+    on_unknown_category: on_unknown,
+    categories: clean,
+    updated_at: new Date().toISOString(),
+    updated_by: req.admin?.email || null,
+  };
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(P.categoriesPublish, JSON.stringify(payload, null, 2));
+    const on = Object.values(clean).filter(Boolean).length;
+    console.log(`[PIPELINE] categories-publish salvo: ${on}/${Object.keys(clean).length} ativas por ${req.admin?.email || 'admin'}`);
+    return res.json({ success: true, data: payload });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
 };
 
 // GET /api/admin/pipeline/dedup-active
