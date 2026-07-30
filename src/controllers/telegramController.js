@@ -11,8 +11,8 @@ function pruneRecent(now) {
     if (now - ts > IDEMPOTENCY_TTL_MS) recentSends.delete(k);
   }
 }
-function idempotencyKey(text, imageUrl) {
-  return crypto.createHash('sha1').update(`${text}|${imageUrl || ''}`).digest('hex');
+function idempotencyKey(text, imageUrl, previewUrl) {
+  return crypto.createHash('sha1').update(`${text}|${imageUrl || ''}|${previewUrl || ''}`).digest('hex');
 }
 
 /**
@@ -26,7 +26,7 @@ function idempotencyKey(text, imageUrl) {
  */
 export const sendPromotionMessage = async (req, res, next) => {
   try {
-    const { text, image_url } = req.body || {};
+    const { text, image_url, link_preview, preview_url } = req.body || {};
 
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
       return res.status(400).json({
@@ -37,7 +37,7 @@ export const sendPromotionMessage = async (req, res, next) => {
 
     const now = Date.now();
     pruneRecent(now);
-    const key = idempotencyKey(text, image_url);
+    const key = idempotencyKey(text, image_url, preview_url);
     const seenAt = recentSends.get(key);
     if (seenAt) {
       const ageMs = now - seenAt;
@@ -51,8 +51,14 @@ export const sendPromotionMessage = async (req, res, next) => {
     recentSends.set(key, now);
 
     // Enviar mensagem para o Telegram de forma assíncrona.
-    // Se image_url vier, anexa como foto (sendPhoto); senão manda texto sem preview.
-    await sendTelegramMessage(text, image_url || null);
+    // - image_url  → anexa como foto (sendPhoto).
+    // - senão + link_preview → texto COM preview de link (Telegram raspa a
+    //   imagem da própria página; usado como última tentativa para o ML).
+    // - senão      → texto sem preview (comportamento antigo).
+    await sendTelegramMessage(text, image_url || null, {
+      linkPreview: link_preview === true,
+      previewUrl: preview_url || null,
+    });
 
     return res.json({
       success: true,

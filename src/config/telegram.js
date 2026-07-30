@@ -4,7 +4,7 @@ import https from 'https';
  * Envia uma mensagem de texto para o bot/grupo do Telegram.
  * Usa apenas variáveis de ambiente, sem expor o token em nenhuma rota pública.
  */
-export async function sendTelegramMessage(text, imageUrl = null) {
+export async function sendTelegramMessage(text, imageUrl = null, options = {}) {
   try {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -15,14 +15,28 @@ export async function sendTelegramMessage(text, imageUrl = null) {
 
     // Se veio imagem, usa sendPhoto (imagem ANEXADA, sem preview de link).
     // Caption tem limite 1024 chars; nossa mensagem ~300 chars, cabe folgado.
-    // Se não veio imagem, usa sendMessage com preview de link desabilitado.
+    // Se não veio imagem, usa sendMessage:
+    //   - options.linkPreview === true  → LIGA o preview de link (webView),
+    //     deixando o próprio Telegram raspar a imagem da página. Usado como
+    //     última tentativa (hoje só para o Mercado Livre) quando a imagem que
+    //     temos seria a foto "suja" anexada pelo promoter de origem. Fixamos a
+    //     URL do preview via link_preview_options.url para garantir que o cartão
+    //     seja o do produto, não o do link do site no fim da mensagem.
+    //   - caso contrário → preview de link desabilitado (comportamento antigo).
     const useImage = !!imageUrl;
     const method = useImage ? 'sendPhoto' : 'sendMessage';
     const url = new URL(`https://api.telegram.org/bot${token}/${method}`);
 
-    const body = useImage
-      ? { chat_id: chatId, photo: imageUrl, caption: text, parse_mode: 'Markdown' }
-      : { chat_id: chatId, text, parse_mode: 'Markdown', disable_web_page_preview: true };
+    let body;
+    if (useImage) {
+      body = { chat_id: chatId, photo: imageUrl, caption: text, parse_mode: 'Markdown' };
+    } else if (options.linkPreview) {
+      const linkPreviewOptions = { is_disabled: false, prefer_large_media: true };
+      if (options.previewUrl) linkPreviewOptions.url = options.previewUrl;
+      body = { chat_id: chatId, text, parse_mode: 'Markdown', link_preview_options: linkPreviewOptions };
+    } else {
+      body = { chat_id: chatId, text, parse_mode: 'Markdown', disable_web_page_preview: true };
+    }
 
     const payload = JSON.stringify(body);
 
