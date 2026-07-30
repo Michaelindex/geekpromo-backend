@@ -4,7 +4,7 @@ import https from 'https';
  * Envia uma mensagem de texto para o bot/grupo do Telegram.
  * Usa apenas variáveis de ambiente, sem expor o token em nenhuma rota pública.
  */
-export async function sendTelegramMessage(text, imageUrl = null, options = {}) {
+export async function sendTelegramMessage(text, imageUrl = null, previewOpts = {}) {
   try {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -30,9 +30,9 @@ export async function sendTelegramMessage(text, imageUrl = null, options = {}) {
     let body;
     if (useImage) {
       body = { chat_id: chatId, photo: imageUrl, caption: text, parse_mode: 'Markdown' };
-    } else if (options.linkPreview) {
+    } else if (previewOpts.linkPreview) {
       const linkPreviewOptions = { is_disabled: false, prefer_large_media: true };
-      if (options.previewUrl) linkPreviewOptions.url = options.previewUrl;
+      if (previewOpts.previewUrl) linkPreviewOptions.url = previewOpts.previewUrl;
       body = { chat_id: chatId, text, parse_mode: 'Markdown', link_preview_options: linkPreviewOptions };
     } else {
       body = { chat_id: chatId, text, parse_mode: 'Markdown', disable_web_page_preview: true };
