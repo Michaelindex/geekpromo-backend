@@ -20,6 +20,10 @@ const GROUPS_FILE = path.join(DATA_DIR, 'groups.json');
 const REFRESH_FILE = path.join(DATA_DIR, 'groups.refresh');
 const AVATARS_DIR = path.join(DATA_DIR, 'avatars');
 
+// Base do processo geekauto (listener MTProto) — único com sessão Telegram viva.
+// Usado só pelas ações de resolve/entrar/sair, que precisam falar com o Telegram de verdade.
+const GEEKAUTO_BASE_URL = process.env.GEEKAUTO_BASE_URL || 'http://127.0.0.1:3010/geekauto';
+
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,64}$/;
 
 function readGroups() {
@@ -96,6 +100,68 @@ export const refreshGroups = (req, res) => {
   }
   requestRefresh(usernames);
   return res.json({ success: true, data: { queued: usernames } });
+};
+
+async function proxyToGeekauto(pathname, body) {
+  const res = await fetch(`${GEEKAUTO_BASE_URL}${pathname}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  let json;
+  try { json = await res.json(); } catch { json = null; }
+  return { status: res.status, json };
+}
+
+// POST /api/admin/telegram-groups/resolve  { input }
+// Só consulta o Telegram (link, @user ou username puro) — não entra em nada ainda.
+export const resolveGroup = async (req, res) => {
+  const input = req.body?.input;
+  if (!input || typeof input !== 'string') {
+    return res.status(400).json({ success: false, error: 'informe o link ou @username' });
+  }
+  try {
+    const { status, json } = await proxyToGeekauto('/groups/resolve', { input });
+    return res.status(status).json(json || { success: false, error: 'sem resposta do listener' });
+  } catch (err) {
+    return res.status(502).json({ success: false, error: 'listener do Telegram indisponível' });
+  }
+};
+
+// POST /api/admin/telegram-groups/join  { username }
+// Entra no canal de verdade e adiciona na lista, sempre inativo por padrão.
+export const joinGroup = async (req, res) => {
+  const username = req.body?.username;
+  if (!username || typeof username !== 'string') {
+    return res.status(400).json({ success: false, error: 'informe o username do canal' });
+  }
+  try {
+    const { status, json } = await proxyToGeekauto('/groups/join', { username });
+    if (json?.success) {
+      console.log(`[TG-GROUPS] entrou em ${username} por ${req.admin?.email || 'admin'}`);
+    }
+    return res.status(status).json(json || { success: false, error: 'sem resposta do listener' });
+  } catch (err) {
+    return res.status(502).json({ success: false, error: 'listener do Telegram indisponível' });
+  }
+};
+
+// DELETE /api/admin/telegram-groups/:username
+// Sai do canal de verdade e remove da lista.
+export const leaveGroup = async (req, res) => {
+  const { username } = req.params;
+  if (!USERNAME_RE.test(username)) {
+    return res.status(400).json({ success: false, error: 'username inválido' });
+  }
+  try {
+    const { status, json } = await proxyToGeekauto('/groups/leave', { username });
+    if (json?.success) {
+      console.log(`[TG-GROUPS] saiu de ${username} por ${req.admin?.email || 'admin'}`);
+    }
+    return res.status(status).json(json || { success: false, error: 'sem resposta do listener' });
+  } catch (err) {
+    return res.status(502).json({ success: false, error: 'listener do Telegram indisponível' });
+  }
 };
 
 // GET /api/admin/telegram-groups/:username/avatar
