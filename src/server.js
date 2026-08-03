@@ -19,6 +19,7 @@ import siteConfigRoutes from './routes/siteConfigRoutes.js';
 import newsletterRoutes from './routes/newsletterRoutes.js';
 import scheduler from './scheduler.js';
 import shortUrlRoutes from './routes/shortUrlRoutes.js';
+import shortLinkRoutes from './routes/shortLinkRoutes.js';
 import redirectRoutes from './routes/redirectRoutes.js';
 import visitRoutes from './routes/visitRoutes.js';
 import imageOptimizeRoutes from './routes/imageOptimizeRoutes.js';
@@ -142,6 +143,7 @@ app.use('/api/admin/metrics', metricsRoutes); // KPIs com filtros de período
 app.use('/api/integrations', integrationRoutes); // Integrações externas (ex: Telegram)
 app.use('/api/admin/pipeline', pipelineRoutes); // Pipeline geekpromo-auto (admin only)
 app.use('/api/admin/telegram-groups', telegramGroupsRoutes); // Grupos monitorados pelo listener MTProto
+app.use('/api/short-links', shortLinkRoutes); // Encurtador da raiz (geekpromo.com.br/{code})
 
 // Registrar rotas de Short URLs (DEVE vir por último)
 app.use('/api', shortUrlRoutes);
