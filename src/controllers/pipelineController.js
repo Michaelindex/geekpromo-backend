@@ -29,6 +29,8 @@ const P = {
   telegramOff: path.join(DATA_DIR, 'telegram.disabled'),
   // Allowlist de categorias autorizadas a virar post. Ver getCategoriesPublish.
   categoriesPublish: path.join(DATA_DIR, 'categories-publish.json'),
+  // Janelas de deduplicação (horas) — lido em runtime por dedup.js/coupon-flow.js.
+  dedupConfig: path.join(DATA_DIR, 'dedup-config.json'),
 };
 
 function safeReadJson(p, fallback) {
@@ -52,7 +54,7 @@ export const getStatus = (req, res) => {
     try { mode = fs.readFileSync(P.mode, 'utf8').trim() === 'live' ? 'live' : 'dry-run'; }
     catch { mode = 'dry-run'; }
   }
-  const stats = safeReadJson(P.stats, { day: new Date().toISOString().slice(0, 10), processed: 0, published: 0, skipped: 0, failed: 0, ai_tokens_in: 0, ai_tokens_out: 0 });
+  const stats = safeReadJson(P.stats, { day: new Date().toISOString().slice(0, 10), processed: 0, published: 0, skipped: 0, blocked: 0, failed: 0, ai_tokens_in: 0, ai_tokens_out: 0 });
   const circuit = safeReadJson(P.circuit, { fails: 0, openedAt: null });
   const publishedCount = Object.keys(safeReadJson(P.published, {})).length;
   const telegram_enabled = !fs.existsSync(P.telegramOff);
@@ -193,11 +195,65 @@ export const setCategoriesPublish = (req, res) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Janelas de deduplicação (em horas), editáveis pelo painel.
+//   product_window_hours → dedup de produtos  (pipeline/dedup.js)
+//   coupon_window_hours  → dedup de cupons    (pipeline/coupon-flow.js)
+// Os workers leem o mesmo arquivo em runtime (cache por mtime), então salvar
+// aqui vale em segundos, sem restart.
+// ---------------------------------------------------------------------------
+const DEDUP_DEFAULTS = { product_window_hours: 4, coupon_window_hours: 1 };
+
+function readDedupConfig() {
+  const cfg = safeReadJson(P.dedupConfig, {});
+  const p = Number(cfg.product_window_hours);
+  const c = Number(cfg.coupon_window_hours);
+  return {
+    product_window_hours: Number.isFinite(p) && p > 0 ? p : DEDUP_DEFAULTS.product_window_hours,
+    coupon_window_hours: Number.isFinite(c) && c > 0 ? c : DEDUP_DEFAULTS.coupon_window_hours,
+    updated_at: cfg.updated_at || null,
+    updated_by: cfg.updated_by || null,
+  };
+}
+
+// GET /api/admin/pipeline/dedup-config
+export const getDedupConfig = (req, res) => {
+  return res.json({ success: true, data: readDedupConfig() });
+};
+
+// PUT /api/admin/pipeline/dedup-config
+// Body: { product_window_hours: number, coupon_window_hours: number }
+// Só aceita números positivos; clampa em [1, 168] horas (1h a 7 dias) e
+// arredonda para hora inteira. Campo ausente/ inválido mantém o valor atual.
+export const setDedupConfig = (req, res) => {
+  const body = req.body || {};
+  const current = readDedupConfig();
+  const clamp = (v, fallback) => {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return fallback;
+    return Math.min(168, Math.max(1, Math.round(n)));
+  };
+  const payload = {
+    product_window_hours: clamp(body.product_window_hours, current.product_window_hours),
+    coupon_window_hours: clamp(body.coupon_window_hours, current.coupon_window_hours),
+    updated_at: new Date().toISOString(),
+    updated_by: req.admin?.email || null,
+  };
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(P.dedupConfig, JSON.stringify(payload, null, 2));
+    console.log(`[PIPELINE] dedup-config salvo: produtos=${payload.product_window_hours}h cupons=${payload.coupon_window_hours}h por ${req.admin?.email || 'admin'}`);
+    return res.json({ success: true, data: payload });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 // GET /api/admin/pipeline/dedup-active
-// Retorna quantas entradas ativas há na janela de 2h (só o count + tail curto)
+// Retorna quantas entradas ativas há na janela de produtos (count + tail curto)
 export const dedupActive = (req, res) => {
   const now = Date.now();
-  const WINDOW = 2 * 3600 * 1000;
+  const WINDOW = readDedupConfig().product_window_hours * 3600 * 1000;
   const all = tailLines(P.recentPublished, 2000);
   const active = all.filter((e) => {
     const at = new Date(e.at || 0).getTime();

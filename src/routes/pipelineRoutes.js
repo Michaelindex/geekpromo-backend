@@ -4,6 +4,7 @@ import {
   getStatus, start, stop, setMode, dryRunLog, failedLog,
   dedupSkippedLog, dedupActive, setTelegramEnabled,
   getCategoriesPublish, setCategoriesPublish,
+  getDedupConfig, setDedupConfig,
 } from '../controllers/pipelineController.js';
 
 const router = Router();
@@ -22,5 +23,7 @@ router.get('/dedup-skipped', dedupSkippedLog);
 router.get('/dedup-active', dedupActive);
 router.get('/categories-publish', getCategoriesPublish);
 router.put('/categories-publish', setCategoriesPublish);
+router.get('/dedup-config', getDedupConfig);
+router.put('/dedup-config', setDedupConfig);
 
 export default router;
