@@ -8,6 +8,7 @@ import {
   resolveGroup,
   joinGroup,
   leaveGroup,
+  updateStoreFilters,
 } from '../controllers/telegramGroupsController.js';
 
 const router = Router();
@@ -19,6 +20,7 @@ router.post('/refresh', refreshGroups);
 router.post('/resolve', resolveGroup);
 router.post('/join', joinGroup);
 router.post('/:username/toggle', toggleGroup);
+router.put('/:username/store-filters', updateStoreFilters);
 router.delete('/:username', leaveGroup);
 router.get('/:username/avatar', getAvatar);
 

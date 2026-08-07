@@ -26,6 +26,23 @@ const GEEKAUTO_BASE_URL = process.env.GEEKAUTO_BASE_URL || 'http://127.0.0.1:301
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,64}$/;
 
+// Chaves canônicas de loja usadas pelo filtro por canal. Precisa bater 1:1 com o
+// que o worker/scheduler resolve como "loja efetiva" (ver isBlockedByChannelFilter
+// em pipeline/scheduler.js). Ordem = ordem de exibição no dialog do front.
+export const STORE_FILTER_KEYS = [
+  'amazon',
+  'mercado_livre',
+  'shopee',
+  'magazine',
+  'aliexpress',
+  'awin:nike',
+  'awin:asics',
+  'awin:centauro',
+  'awin:samsung',
+  'awin:kabum',
+];
+const STORE_FILTER_KEY_SET = new Set(STORE_FILTER_KEYS);
+
 function readGroups() {
   try {
     const raw = fs.readFileSync(GROUPS_FILE, 'utf8');
@@ -162,6 +179,40 @@ export const leaveGroup = async (req, res) => {
   } catch (err) {
     return res.status(502).json({ success: false, error: 'listener do Telegram indisponível' });
   }
+};
+
+// PUT /api/admin/telegram-groups/:username/store-filters
+// Body: { storeFilters: Record<string, boolean> }
+// Ausência de uma chave = permitido (default seguro). Só chaves conhecidas passam.
+export const updateStoreFilters = (req, res) => {
+  const { username } = req.params;
+  const { storeFilters } = req.body || {};
+  if (!USERNAME_RE.test(username)) {
+    return res.status(400).json({ success: false, error: 'username inválido' });
+  }
+  if (!storeFilters || typeof storeFilters !== 'object' || Array.isArray(storeFilters)) {
+    return res.status(400).json({ success: false, error: 'storeFilters deve ser objeto' });
+  }
+  const clean = {};
+  for (const [k, v] of Object.entries(storeFilters)) {
+    if (!STORE_FILTER_KEY_SET.has(k)) {
+      return res.status(400).json({ success: false, error: `loja desconhecida: ${k}` });
+    }
+    if (typeof v !== 'boolean') {
+      return res.status(400).json({ success: false, error: `storeFilters.${k} deve ser boolean` });
+    }
+    clean[k] = v;
+  }
+  const data = readGroups();
+  const entry = data.groups.find((g) => g.username === username);
+  if (!entry) {
+    return res.status(404).json({ success: false, error: 'grupo não encontrado' });
+  }
+  entry.storeFilters = clean;
+  const saved = writeGroups(data.groups);
+  const blocked = Object.entries(clean).filter(([, v]) => v === false).map(([k]) => k);
+  console.log(`[TG-GROUPS] ${username} storeFilters bloqueadas=[${blocked.join(',')}] por ${req.admin?.email || 'admin'}`);
+  return res.json({ success: true, data: saved });
 };
 
 // GET /api/admin/telegram-groups/:username/avatar
