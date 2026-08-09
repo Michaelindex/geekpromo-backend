@@ -5,6 +5,7 @@ import {
   dedupSkippedLog, dedupActive, setTelegramEnabled,
   getCategoriesPublish, setCategoriesPublish,
   getDedupConfig, setDedupConfig,
+  getMessageFlow, getMessageImage,
 } from '../controllers/pipelineController.js';
 
 const router = Router();
@@ -25,5 +26,9 @@ router.get('/categories-publish', getCategoriesPublish);
 router.put('/categories-publish', setCategoriesPublish);
 router.get('/dedup-config', getDedupConfig);
 router.put('/dedup-config', setDedupConfig);
+
+// Relatório "Fluxo de Mensagens" — últimos 7 dias (read-only).
+router.get('/message-flow', getMessageFlow);
+router.get('/message-image', getMessageImage);
 
 export default router;
