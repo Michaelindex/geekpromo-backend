@@ -28,6 +28,7 @@ import integrationRoutes from './routes/integrationRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import pipelineRoutes from './routes/pipelineRoutes.js';
 import telegramGroupsRoutes from './routes/telegramGroupsRoutes.js';
+import telegramOutputChannelsRoutes from './routes/telegramOutputChannelsRoutes.js';
 
 // Para obter __dirname em ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -143,6 +144,7 @@ app.use('/api/admin/metrics', metricsRoutes); // KPIs com filtros de período
 app.use('/api/integrations', integrationRoutes); // Integrações externas (ex: Telegram)
 app.use('/api/admin/pipeline', pipelineRoutes);  // Pipeline geekpromo-auto (admin only)
 app.use('/api/admin/telegram-groups', telegramGroupsRoutes); // Grupos monitorados pelo listener MTProto
+app.use('/api/admin/telegram-output-channels', telegramOutputChannelsRoutes); // Grupos afiliados (canais de saída por categoria)
 app.use('/api/short-links', shortLinkRoutes); // Encurtador da raiz (geekpromo.com.br/{code})
 
 // Registrar rotas de Short URLs (DEVE vir por último)

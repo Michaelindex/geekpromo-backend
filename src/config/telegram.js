@@ -6,7 +6,7 @@ import https from 'https';
  */
 export async function sendTelegramMessage(text, imageUrl = null, previewOpts = {}) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const chatId = previewOpts.chatId || process.env.TELEGRAM_CHAT_ID;
 
   if (!token || !chatId) {
     return;

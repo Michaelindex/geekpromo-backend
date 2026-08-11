@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { sendTelegramMessage } from '../config/telegram.js';
+import TelegramOutputChannel from '../models/TelegramOutputChannel.js';
 
 // Dedup em memória: previne double-post no canal quando o publisher retenta
 // após timeout de rede (mas o 1º envio já foi entregue). Chave = sha1(text|image_url).
@@ -11,8 +12,42 @@ function pruneRecent(now) {
     if (now - ts > IDEMPOTENCY_TTL_MS) recentSends.delete(k);
   }
 }
-function idempotencyKey(text, imageUrl, previewUrl) {
-  return crypto.createHash('sha1').update(`${text}|${imageUrl || ''}|${previewUrl || ''}`).digest('hex');
+function idempotencyKey(text, imageUrl, previewUrl, target) {
+  return crypto.createHash('sha1').update(`${target || ''}|${text}|${imageUrl || ''}|${previewUrl || ''}`).digest('hex');
+}
+
+async function fanOutToCategoryChannels({ category_ids, text, image_url, link_preview, preview_url }) {
+  if (!Array.isArray(category_ids) || category_ids.length === 0) return;
+
+  let targets;
+  try {
+    targets = await TelegramOutputChannel.findTargetsForCategories(category_ids);
+  } catch (err) {
+    console.error('[TELEGRAM] fan-out: falha ao buscar canais por categoria:', err.message);
+    return;
+  }
+  if (!targets.length) return;
+
+  const now = Date.now();
+  pruneRecent(now);
+
+  await Promise.allSettled(
+    targets.map(async (t) => {
+      const key = idempotencyKey(text, image_url, preview_url, t.chat_id);
+      if (recentSends.get(key)) return;
+      recentSends.set(key, Date.now());
+      try {
+        await sendTelegramMessage(text, image_url || null, {
+          chatId: t.chat_id,
+          linkPreview: link_preview === true,
+          previewUrl: preview_url || null,
+        });
+      } catch (err) {
+        recentSends.delete(key);
+        console.error(`[TELEGRAM] fan-out canal ${t.title} (${t.chat_id}) FALHOU: ${err.message}`);
+      }
+    })
+  );
 }
 
 /**
@@ -26,7 +61,7 @@ function idempotencyKey(text, imageUrl, previewUrl) {
  */
 export const sendPromotionMessage = async (req, res, next) => {
   try {
-    const { text, image_url, link_preview, preview_url } = req.body || {};
+    const { text, image_url, link_preview, preview_url, category_ids } = req.body || {};
 
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
       return res.status(400).json({
@@ -58,6 +93,10 @@ export const sendPromotionMessage = async (req, res, next) => {
     await sendTelegramMessage(text, image_url || null, {
       linkPreview: link_preview === true,
       previewUrl: preview_url || null,
+    });
+
+    fanOutToCategoryChannels({ category_ids, text, image_url, link_preview, preview_url }).catch((err) => {
+      console.error('[TELEGRAM] fan-out inesperado:', err.message);
     });
 
     return res.json({
