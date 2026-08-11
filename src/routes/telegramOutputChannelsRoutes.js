@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAdmin } from '../middleware/auth.js';
 import {
   getMeta,
+  getAvatar,
   listChannels,
   createChannel,
   updateChannel,
@@ -17,6 +18,7 @@ router.use(requireAdmin);
 
 router.get('/meta', getMeta);
 router.get('/', listChannels);
+router.get('/:id/avatar', getAvatar);
 router.post('/', createChannel);
 router.put('/:id', updateChannel);
 router.post('/:id/verify', verifyChannel);

@@ -1,11 +1,16 @@
 import https from 'node:https';
+import fs from 'node:fs';
+import path from 'node:path';
 import TelegramOutputChannel from '../models/TelegramOutputChannel.js';
 import Category from '../models/Category.js';
 
 const GEEKAUTO_BASE_URL = process.env.GEEKAUTO_BASE_URL || 'http://127.0.0.1:3010/geekauto';
+const DATA_DIR = process.env.GEEKAUTO_DATA_DIR || '/root/Geekloko/geekpromo-auto/data';
+const AVATARS_DIR = path.join(DATA_DIR, 'avatars');
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,64}$/;
 
 let botUsernameCache = null;
+let mainAccountCache = null;
 
 function extractUsername(raw) {
   const s = String(raw || '').trim();
@@ -52,12 +57,33 @@ async function proxyVerify(username, botUsername) {
   return { status: res.status, json };
 }
 
+async function getMainAccount() {
+  if (mainAccountCache) return mainAccountCache;
+  const res = await fetch(`${GEEKAUTO_BASE_URL}/self`);
+  const json = await res.json().catch(() => null);
+  if (json?.success && json.data?.username) {
+    mainAccountCache = json.data.username;
+    return mainAccountCache;
+  }
+  return null;
+}
+
 export const getMeta = async (req, res) => {
   let botUsername = null;
-  try {
-    botUsername = await getBotUsername();
-  } catch { botUsername = null; }
-  return res.json({ success: true, data: { botUsername } });
+  let mainAccount = null;
+  try { botUsername = await getBotUsername(); } catch { botUsername = null; }
+  try { mainAccount = await getMainAccount(); } catch { mainAccount = null; }
+  return res.json({ success: true, data: { botUsername, mainAccount } });
+};
+
+export const getAvatar = async (req, res) => {
+  const { id } = req.params;
+  const channel = await TelegramOutputChannel.findById(id);
+  if (!channel || !channel.username) return res.status(404).send('sem foto');
+  const p = path.join(AVATARS_DIR, `${channel.username}.jpg`);
+  if (!fs.existsSync(p)) return res.status(404).send('sem foto');
+  res.set('Cache-Control', 'private, max-age=60');
+  return res.sendFile(p);
 };
 
 export const listChannels = async (req, res, next) => {
