@@ -5,6 +5,7 @@ import {
   dedupSkippedLog, dedupActive, setTelegramEnabled,
   getCategoriesPublish, setCategoriesPublish,
   getDedupConfig, setDedupConfig,
+  getBlockFilters, setBlockFilters,
   getMessageFlow, getMessageImage,
 } from '../controllers/pipelineController.js';
 
@@ -26,6 +27,8 @@ router.get('/categories-publish', getCategoriesPublish);
 router.put('/categories-publish', setCategoriesPublish);
 router.get('/dedup-config', getDedupConfig);
 router.put('/dedup-config', setDedupConfig);
+router.get('/block-filters', getBlockFilters);
+router.put('/block-filters', setBlockFilters);
 
 // Relatório "Fluxo de Mensagens" — últimos 7 dias (read-only).
 router.get('/message-flow', getMessageFlow);

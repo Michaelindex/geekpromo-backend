@@ -31,6 +31,9 @@ const P = {
   categoriesPublish: path.join(DATA_DIR, 'categories-publish.json'),
   // Janelas de deduplicação (horas) — lido em runtime por dedup.js/coupon-flow.js.
   dedupConfig: path.join(DATA_DIR, 'dedup-config.json'),
+  // Filtro de mensagens: frases que, se contidas na msg, barram antes da IA.
+  // Lido em runtime por pipeline/message-block-filter.js (cache por mtime).
+  blockFilters: path.join(DATA_DIR, 'message-block-filters.json'),
   // Fontes do relatório "Fluxo de Mensagens" (últimos 7 dias).
   messages: path.join(DATA_DIR, 'messages.jsonl'),        // tudo que CHEGOU dos canais
   skipsDetail: path.join(DATA_DIR, 'skips-detail.jsonl'),  // barradas/puladas/duplicadas c/ motivo
@@ -250,6 +253,67 @@ export const setDedupConfig = (req, res) => {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(P.dedupConfig, JSON.stringify(payload, null, 2));
     console.log(`[PIPELINE] dedup-config salvo: produtos=${payload.product_window_hours}h cupons=${payload.coupon_window_hours}h por ${req.admin?.email || 'admin'}`);
+    return res.json({ success: true, data: payload });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Filtro de mensagens (frases de bloqueio), editável pelo painel.
+//   phrases[] → se a mensagem que chega CONTÉM exatamente uma dessas frases
+//   (ignorando maiúscula/acento/pontuação), o worker nega antes da IA.
+// O worker lê o mesmo arquivo em runtime (cache por mtime) — salvar aqui vale
+// em segundos, sem restart. Ver pipeline/message-block-filter.js.
+// ---------------------------------------------------------------------------
+function readBlockFilters() {
+  const cfg = safeReadJson(P.blockFilters, {});
+  const phrases = Array.isArray(cfg.phrases)
+    ? cfg.phrases.map((p) => String(p)).filter((p) => p.trim().length > 0)
+    : [];
+  return {
+    phrases,
+    updated_at: cfg.updated_at || null,
+    updated_by: cfg.updated_by || null,
+  };
+}
+
+// GET /api/admin/pipeline/block-filters
+export const getBlockFilters = (req, res) => {
+  return res.json({ success: true, data: readBlockFilters() });
+};
+
+// PUT /api/admin/pipeline/block-filters
+// Body: { phrases: string[] } — normaliza: tira vazios, apara espaços, dedup
+// (case/acento-insensível) e limita tamanho pra não virar filtro absurdo.
+export const setBlockFilters = (req, res) => {
+  const body = req.body || {};
+  if (!Array.isArray(body.phrases)) {
+    return res.status(400).json({ success: false, error: 'phrases deve ser um array' });
+  }
+  const norm = (s) => String(s).toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  const seen = new Set();
+  const phrases = [];
+  for (const raw of body.phrases) {
+    const s = String(raw).trim().slice(0, 300);
+    if (!s) continue;
+    const key = norm(s);
+    if (!key || seen.has(key)) continue; // ignora vazio-normalizado e duplicata
+    seen.add(key);
+    phrases.push(s);
+    if (phrases.length >= 200) break; // teto de sanidade
+  }
+  const payload = {
+    phrases,
+    updated_at: new Date().toISOString(),
+    updated_by: req.admin?.email || null,
+  };
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(P.blockFilters, JSON.stringify(payload, null, 2));
+    console.log(`[PIPELINE] block-filters salvo: ${phrases.length} frase(s) por ${req.admin?.email || 'admin'}`);
     return res.json({ success: true, data: payload });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
