@@ -41,6 +41,11 @@ const P = {
   couponsRecent: path.join(DATA_DIR, 'coupons-recent.jsonl'),   // cupons PUBLICADOS
   scheduled: path.join(DATA_DIR, 'scheduled-publish.jsonl'), // fila viva do dispatcher
   imagesDir: path.join(DATA_DIR, 'images'),               // fotos cruas do Telegram
+  // Templates editáveis das mensagens do Telegram.
+  //   msgTemplatesDefaults → espelho dos DEFAULTS, escrito pelo pipeline (só leitura aqui)
+  //   msgTemplates         → overrides do admin (lido pelo pipeline em runtime, cache por mtime)
+  msgTemplatesDefaults: path.join(DATA_DIR, 'message-templates.defaults.json'),
+  msgTemplates: path.join(DATA_DIR, 'message-templates.json'),
 };
 
 function safeReadJson(p, fallback) {
@@ -553,4 +558,232 @@ export const getMessageImage = (req, res) => {
   res.setHeader('Content-Type', mime);
   res.setHeader('Cache-Control', 'private, max-age=86400');
   fs.createReadStream(full).on('error', () => { if (!res.headersSent) res.status(404).end(); }).pipe(res);
+};
+
+// ===========================================================================
+// TEMPLATES EDITÁVEIS DAS MENSAGENS DO TELEGRAM
+// ---------------------------------------------------------------------------
+// O admin edita o TEXTO de cada segmento (título, preço, cupom, link, rodapé…)
+// das mensagens que o pipeline posta. O schema + defaults vêm do espelho que o
+// pipeline escreve (message-templates.defaults.json). Os overrides do admin vão
+// para message-templates.json, lido pelo pipeline em runtime (cache por mtime).
+//
+// SEGURANÇA: um override só é aceito se contiver TODAS as variáveis obrigatórias
+// (`vars`) do segmento. Isso impede que um {link} de afiliado seja removido.
+// O pipeline tem a MESMA trava em runtime (dupla proteção).
+// ===========================================================================
+
+// Lê o schema (defaults + metadados) do espelho escrito pelo pipeline.
+function readTemplatesSchema() {
+  const schema = safeReadJson(P.msgTemplatesDefaults, null);
+  if (!schema || typeof schema !== 'object') return null;
+  return schema;
+}
+
+// Escape HTML idêntico ao do pipeline (parse_mode=HTML). Só no texto literal.
+function escLiteral(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Devolve o texto efetivo de um segmento: override válido, senão default.
+// "Válido" = string não-vazia contendo todas as vars obrigatórias.
+function effectiveSegment(schemaSeg, overrideTemplate) {
+  const def = schemaSeg?.template ?? '';
+  if (typeof overrideTemplate === 'string' && overrideTemplate.length > 0) {
+    const ok = (schemaSeg?.vars || []).every((v) => overrideTemplate.includes(`{${v}}`));
+    if (ok) return overrideTemplate;
+  }
+  return def;
+}
+
+// Renderiza um segmento (escape literal + injeta valores crus via split/join).
+function renderSeg(template, values) {
+  let out = escLiteral(template);
+  for (const [k, v] of Object.entries(values)) {
+    out = out.split(`{${k}}`).join(v == null ? '' : String(v));
+  }
+  return out;
+}
+
+// GET /api/admin/pipeline/message-templates
+// Devolve, por tipo, cada segmento com { default, current, vars, label, hint }.
+export const getMessageTemplates = (req, res) => {
+  const schema = readTemplatesSchema();
+  if (!schema) {
+    return res.status(503).json({ success: false, error: 'Schema de templates indisponível (a automação ainda não inicializou o arquivo de defaults).' });
+  }
+  const overrides = safeReadJson(P.msgTemplates, {});
+  const types = Object.entries(schema).map(([typeKey, t]) => ({
+    key: typeKey,
+    label: t.label || typeKey,
+    description: t.description || '',
+    segments: Object.entries(t.segments || {}).map(([segKey, seg]) => {
+      const ov = overrides?.[typeKey]?.segments?.[segKey]?.template;
+      return {
+        key: segKey,
+        label: seg.label || segKey,
+        hint: seg.hint || '',
+        optional: !!seg.optional,
+        vars: seg.vars || [],
+        default: seg.template ?? '',
+        current: effectiveSegment(seg, ov),
+      };
+    }),
+  }));
+  return res.json({
+    success: true,
+    data: {
+      types,
+      updated_at: overrides?.updated_at || null,
+      updated_by: overrides?.updated_by || null,
+    },
+  });
+};
+
+// PUT /api/admin/pipeline/message-templates
+// Body: { templates: { [type]: { [segKey]: "texto" } } }
+// Regras:
+//   - só aceita type/segmento que existem no schema
+//   - cada texto tem que conter TODAS as vars obrigatórias do segmento (senão 400)
+//   - texto igual ao default é descartado (não vira override) — mantém o arquivo enxuto
+//   - teto de 2000 chars por segmento
+export const setMessageTemplates = (req, res) => {
+  const schema = readTemplatesSchema();
+  if (!schema) {
+    return res.status(503).json({ success: false, error: 'Schema de templates indisponível.' });
+  }
+  const incoming = req.body?.templates;
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    return res.status(400).json({ success: false, error: 'templates deve ser um objeto { tipo: { segmento: texto } }' });
+  }
+
+  const errors = [];
+  const clean = {};
+  for (const [typeKey, segs] of Object.entries(incoming)) {
+    const tSchema = schema[typeKey];
+    if (!tSchema || !segs || typeof segs !== 'object') continue; // tipo desconhecido → ignora
+    for (const [segKey, rawText] of Object.entries(segs)) {
+      const segSchema = tSchema.segments?.[segKey];
+      if (!segSchema) continue; // segmento desconhecido → ignora
+      if (typeof rawText !== 'string') continue;
+      const text = rawText;
+      if (text.length > 2000) {
+        errors.push(`${tSchema.label} › ${segSchema.label}: texto muito longo (máx. 2000 caracteres).`);
+        continue;
+      }
+      // Igual ao default → não persiste como override.
+      if (text === (segSchema.template ?? '')) continue;
+      // Texto vazio → volta ao default (não persiste).
+      if (text.trim().length === 0) continue;
+      // Trava: precisa conter todas as variáveis obrigatórias.
+      const missing = (segSchema.vars || []).filter((v) => !text.includes(`{${v}}`));
+      if (missing.length > 0) {
+        errors.push(`${tSchema.label} › ${segSchema.label}: falta a variável obrigatória ${missing.map((v) => `{${v}}`).join(', ')}.`);
+        continue;
+      }
+      clean[typeKey] = clean[typeKey] || { segments: {} };
+      clean[typeKey].segments[segKey] = { template: text };
+    }
+  }
+
+  if (errors.length > 0) {
+    return res.status(400).json({ success: false, error: errors.join(' ') });
+  }
+
+  const payload = {
+    ...clean,
+    updated_at: new Date().toISOString(),
+    updated_by: req.admin?.email || null,
+  };
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(P.msgTemplates, JSON.stringify(payload, null, 2));
+    const n = Object.values(clean).reduce((acc, t) => acc + Object.keys(t.segments).length, 0);
+    console.log(`[PIPELINE] message-templates salvo: ${n} segmento(s) customizado(s) por ${req.admin?.email || 'admin'}`);
+    // Devolve no mesmo formato do GET pra o front atualizar sem refetch.
+    return getMessageTemplates(req, res);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// Amostras representativas por tipo (valores fictícios) + ordem de montagem
+// do "Exemplo". Não replica a lógica condicional do pipeline — mostra um caso
+// típico (com preço e cupom) pra o admin ver como o texto fica.
+const PREVIEW = {
+  product: {
+    order: ['titulo', 'preco', 'cupom', 'compra', 'rodape'],
+    values: {
+      titulo: 'Fone Bluetooth JBL Tune 520BT',
+      preco: 'De R$ 299,90 por apenas R$ 199,90',
+      codigo: '<code>JBL10</code>',
+      link: 'https://mercadolivre.com/sec/exemplo',
+    },
+  },
+  coupon: {
+    order: ['titulo', 'descricao', 'codigo_single', 'ative', 'rodape'],
+    values: {
+      titulo: 'Cupom Amazon — 15% OFF em Eletrônicos',
+      descricao: 'Válido em produtos selecionados, limite de R$ 100.',
+      codigo: '<code>AMZ15</code>',
+      link: 'https://amazon.com.br/cupons/exemplo',
+    },
+  },
+  awin_product: {
+    order: ['titulo', 'descricao', 'preco', 'cupom', 'compra', 'rodape'],
+    values: {
+      titulo: 'Tênis Nike Revolution 7 Masculino',
+      descricao: 'Ideal para corrida e caminhada.',
+      preco: 'De R$ 399,99 por apenas R$ 279,99',
+      codigo: '<code>NIKE10</code>',
+      link: 'https://tidd.ly/exemplo',
+    },
+  },
+  awin_coupon: {
+    order: ['titulo', 'descricao', 'codigo_single', 'ative', 'rodape'],
+    values: {
+      titulo: 'Cupom Centauro — 20% OFF',
+      descricao: 'Em artigos esportivos selecionados.',
+      codigo: '<code>CENT20</code>',
+      link: 'https://tidd.ly/exemplo-cupom',
+    },
+  },
+};
+
+// POST /api/admin/pipeline/message-templates/preview
+// Body: { type, templates?: { [type]: { [segKey]: texto } } }
+// Renderiza uma mensagem-exemplo do tipo pedido, usando os textos enviados
+// (ainda não salvos) quando presentes, senão o current/default. Aplica a MESMA
+// trava (texto sem a var obrigatória → cai no default). Devolve HTML pronto pra
+// exibir (contém <code>/<a> controlados por nós).
+export const previewMessageTemplate = (req, res) => {
+  const schema = readTemplatesSchema();
+  if (!schema) {
+    return res.status(503).json({ success: false, error: 'Schema de templates indisponível.' });
+  }
+  const type = String(req.body?.type || '');
+  const tSchema = schema[type];
+  const spec = PREVIEW[type];
+  if (!tSchema || !spec) {
+    return res.status(400).json({ success: false, error: 'tipo de mensagem inválido' });
+  }
+  const overrides = safeReadJson(P.msgTemplates, {});
+  const draft = (req.body?.templates && typeof req.body.templates === 'object') ? req.body.templates : null;
+
+  const parts = [];
+  for (const segKey of spec.order) {
+    const segSchema = tSchema.segments?.[segKey];
+    if (!segSchema) continue;
+    // Preferência: rascunho enviado → override salvo → default.
+    const draftText = draft?.[type]?.[segKey];
+    const savedText = overrides?.[type]?.segments?.[segKey]?.template;
+    const chosen = (typeof draftText === 'string') ? draftText : savedText;
+    const template = effectiveSegment(segSchema, chosen);
+    // Só injeta as vars que o segmento declara.
+    const values = {};
+    for (const v of segSchema.vars || []) values[v] = spec.values[v] ?? '';
+    parts.push(renderSeg(template, values));
+  }
+  const text = parts.join('\n\n');
+  return res.json({ success: true, data: { type, text } });
 };

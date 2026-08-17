@@ -7,6 +7,7 @@ import {
   getDedupConfig, setDedupConfig,
   getBlockFilters, setBlockFilters,
   getMessageFlow, getMessageImage,
+  getMessageTemplates, setMessageTemplates, previewMessageTemplate,
 } from '../controllers/pipelineController.js';
 
 const router = Router();
@@ -33,5 +34,10 @@ router.put('/block-filters', setBlockFilters);
 // Relatório "Fluxo de Mensagens" — últimos 7 dias (read-only).
 router.get('/message-flow', getMessageFlow);
 router.get('/message-image', getMessageImage);
+
+// Templates editáveis das mensagens do Telegram.
+router.get('/message-templates', getMessageTemplates);
+router.put('/message-templates', setMessageTemplates);
+router.post('/message-templates/preview', previewMessageTemplate);
 
 export default router;
