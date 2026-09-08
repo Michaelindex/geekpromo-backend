@@ -4,6 +4,39 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import sharp from 'sharp';
 
+// Domínio público padrão usado quando não há como determinar o host real
+const DEFAULT_PUBLIC_BASE_URL = 'https://geekpromo.com.br';
+
+const isLocalHost = (host) =>
+  !host || /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(host);
+
+// Monta a base pública (protocolo + host) para as URLs de upload.
+// Evita gravar URLs com "localhost" quando o backend está atrás do proxy.
+const buildPublicBaseUrl = (req) => {
+  // 1) Override explícito por env
+  if (process.env.PUBLIC_UPLOADS_BASE_URL) {
+    return process.env.PUBLIC_UPLOADS_BASE_URL.replace(/\/+$/, '');
+  }
+
+  const first = (v) => (v || '').split(',')[0].trim();
+  const fwdHost = first(req.headers['x-forwarded-host']);
+  const fwdProto = first(req.headers['x-forwarded-proto']);
+
+  // 2) Host repassado pelo proxy (se não for localhost)
+  if (fwdHost && !isLocalHost(fwdHost)) {
+    return `${fwdProto || 'https'}://${fwdHost}`;
+  }
+
+  // 3) Host da própria requisição (se não for localhost)
+  const reqHost = req.get('host');
+  if (!isLocalHost(reqHost)) {
+    return `${req.secure ? 'https' : (fwdProto || 'http')}://${reqHost}`;
+  }
+
+  // 4) Fallback: domínio público padrão (nunca localhost)
+  return DEFAULT_PUBLIC_BASE_URL;
+};
+
 // Configuração do multer
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -62,11 +95,14 @@ export const uploadImage = async (req, res, next) => {
       });
     }
     
-    // Construir URL completa do arquivo
-    const protocol = req.secure ? "https" : "http";
-    const host = req.get('host');
+    // Construir URL pública do arquivo.
+    // O backend fica atrás do proxy (https-server.js), que reescreve o Host para
+    // "localhost:3001" — por isso NÃO dá para confiar em req.get('host') direto.
+    // Ordem de preferência: PUBLIC_UPLOADS_BASE_URL -> X-Forwarded-Host (se não for
+    // localhost) -> Host da requisição (se não for localhost) -> domínio público.
     const relativePath = req.file.path.replace(/\\/g, '/'); // Normalizar barras para URLs
-    const url = `${protocol}://${host}/${relativePath}`;
+    const publicBaseUrl = buildPublicBaseUrl(req);
+    const url = `${publicBaseUrl}/${relativePath}`;
     
     // Gerar derivados otimizados SEM alterar o fluxo atual
     // uploads/products/YYYY/MM/<uuid>.<ext>  ->  uploads/_optimized/YYYY/MM/<uuid>-*.jpg
@@ -105,9 +141,9 @@ export const uploadImage = async (req, res, next) => {
           .jpeg(commonOptions)
           .toFile(widePath);
         optimized = {
-          main: `${protocol}://${host}/uploads/_optimized/${year}/${month}/${mainName}`,
-          ogSquare: `${protocol}://${host}/uploads/_optimized/${year}/${month}/${sqName}`,
-          ogWide: `${protocol}://${host}/uploads/_optimized/${year}/${month}/${wideName}`,
+          main: `${publicBaseUrl}/uploads/_optimized/${year}/${month}/${mainName}`,
+          ogSquare: `${publicBaseUrl}/uploads/_optimized/${year}/${month}/${sqName}`,
+          ogWide: `${publicBaseUrl}/uploads/_optimized/${year}/${month}/${wideName}`,
         };
       }
     } catch (e) {
