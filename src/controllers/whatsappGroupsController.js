@@ -58,6 +58,11 @@ export const setSink = (req, res) => {
   return proxy(res, 'PUT', '/sink', { sink: req.body?.sink });
 };
 
+export const setCapture = (req, res) => {
+  console.log(`[WA-GROUPS] captação geral → ${req.body?.enabled} por ${req.admin?.email || 'admin'}`);
+  return proxy(res, 'PUT', '/capture', { enabled: req.body?.enabled });
+};
+
 export const resolveGroup = (req, res) => {
   const { input } = req.body || {};
   if (!input || typeof input !== 'string') {

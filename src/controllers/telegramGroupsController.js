@@ -18,6 +18,7 @@ import path from 'node:path';
 const DATA_DIR = process.env.GEEKAUTO_DATA_DIR || '/root/Geekloko/geekpromo-auto/data';
 const GROUPS_FILE = path.join(DATA_DIR, 'groups.json');
 const REFRESH_FILE = path.join(DATA_DIR, 'groups.refresh');
+const CAPTURE_FILE = path.join(DATA_DIR, 'telegram-capture.json');
 const AVATARS_DIR = path.join(DATA_DIR, 'avatars');
 
 // Base do processo geekauto (listener MTProto) — único com sessão Telegram viva.
@@ -75,6 +76,34 @@ function requestRefresh(usernames) {
 export const listGroups = (req, res) => {
   const data = readGroups();
   return res.json({ success: true, data });
+};
+
+function readCapture() {
+  try {
+    return { enabled: JSON.parse(fs.readFileSync(CAPTURE_FILE, 'utf8')).enabled !== false };
+  } catch {
+    return { enabled: true };
+  }
+}
+
+// GET /api/admin/telegram-groups/capture
+export const getCapture = (req, res) => res.json({ success: true, data: readCapture() });
+
+// PUT /api/admin/telegram-groups/capture  { enabled: bool }
+// Chave geral: o listener para de ler tudo, sem mexer no ativo/inativo de cada grupo.
+// resumed_at faz o listener ignorar o que foi postado enquanto ela estava desligada.
+export const setCapture = (req, res) => {
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ success: false, error: 'enabled deve ser boolean' });
+  }
+  const now = new Date().toISOString();
+  const tmp = CAPTURE_FILE + '.tmp';
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(tmp, JSON.stringify({ enabled, updated_at: now, resumed_at: enabled ? now : null }, null, 2));
+  fs.renameSync(tmp, CAPTURE_FILE);
+  console.log(`[TG-GROUPS] captação geral → ${enabled ? 'LIGADA' : 'DESLIGADA'} por ${req.admin?.email || 'admin'}`);
+  return res.json({ success: true, data: { enabled } });
 };
 
 // POST /api/admin/telegram-groups/:username/toggle  { active: bool }

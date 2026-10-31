@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { requireAdmin } from '../middleware/auth.js';
 import {
   listGroups,
+  getCapture,
+  setCapture,
   toggleGroup,
   refreshGroups,
   getAvatar,
@@ -16,6 +18,8 @@ const router = Router();
 router.use(requireAdmin);
 
 router.get('/', listGroups);
+router.get('/capture', getCapture);
+router.put('/capture', setCapture);
 router.post('/refresh', refreshGroups);
 router.post('/resolve', resolveGroup);
 router.post('/join', joinGroup);

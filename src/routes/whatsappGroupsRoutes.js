@@ -7,6 +7,7 @@ import {
   resume,
   pause,
   setSink,
+  setCapture,
   resolveGroup,
   getJob,
   joinGroup,
@@ -27,6 +28,7 @@ router.post('/pair', pair);
 router.post('/resume', resume);
 router.post('/pause', pause);
 router.put('/sink', setSink);
+router.put('/capture', setCapture);
 router.post('/resolve', resolveGroup);
 router.get('/jobs/:id', getJob);
 router.post('/join', joinGroup);
