@@ -29,6 +29,7 @@ import authRoutes from './routes/authRoutes.js';
 import pipelineRoutes from './routes/pipelineRoutes.js';
 import telegramGroupsRoutes from './routes/telegramGroupsRoutes.js';
 import whatsappGroupsRoutes from './routes/whatsappGroupsRoutes.js';
+import landingRoutes from './routes/landingRoutes.js';
 import telegramOutputChannelsRoutes from './routes/telegramOutputChannelsRoutes.js';
 
 // Para obter __dirname em ES modules
@@ -146,6 +147,7 @@ app.use('/api/integrations', integrationRoutes); // Integrações externas (ex: 
 app.use('/api/admin/pipeline', pipelineRoutes);  // Pipeline geekpromo-auto (admin only)
 app.use('/api/admin/telegram-groups', telegramGroupsRoutes); // Grupos monitorados pelo listener MTProto
 app.use('/api/admin/whatsapp-groups', whatsappGroupsRoutes); // Grupos e canais do WhatsApp (geekauto-whatsapp)
+app.use('/api/admin/landing', landingRoutes); // Landing Page /geek-grupo: grupos de destino e rotação (geekauto-whatsapp)
 app.use('/api/admin/telegram-output-channels', telegramOutputChannelsRoutes); // Grupos afiliados (canais de saída por categoria)
 app.use('/api/short-links', shortLinkRoutes); // Encurtador da raiz (geekpromo.com.br/{code})
 
